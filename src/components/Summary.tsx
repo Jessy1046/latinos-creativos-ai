@@ -180,6 +180,7 @@ function FinancingPicker({ a, onOpen }: { a: Analysis; onOpen?: () => void }) {
           <Stat label="Ganancia si vendes" value={usd(m.flip.netProfit)} tone={tone(m.flip.netProfit)} sub={`ROI ${pct(m.flip.roiOnCash)}`} />
           {m.balloon > 0 && <Stat label="Saldo al vencimiento" value={usd(m.balloon)} />}
         </div>
+        <FlowBreakdown a={a} m={m} />
         {m.notes[0] && <p className="mt-3 text-xs text-slate-500">{m.notes[0]}</p>}
         {onOpen && (
           <button type="button" onClick={() => { set("financingSub", choice); onOpen(); }}
@@ -189,5 +190,76 @@ function FinancingPicker({ a, onOpen }: { a: Analysis; onOpen?: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Desglose del flujo mensual con los supuestos de gastos editables. */
+function FlowBreakdown({ a, m }: { a: Analysis; m: MethodSummary }) {
+  const { state: s, setDeal } = a;
+  const d = s.deal;
+  const x = m.rental;
+  const e = x.expenses;
+  const selfManaged = d.managementPct === 0;
+  const rows: { label: string; annual: number; strong?: boolean; hide?: boolean }[] = [
+    { label: `Renta (${usd(d.monthlyRent)} × 12)${d.otherMonthlyIncome ? " + otros ingresos" : ""}`, annual: x.grossPotentialIncome },
+    { label: `Vacancia ${pct(d.vacancyPct, 0)} (meses sin inquilino)`, annual: -x.vacancyLoss },
+    { label: "Ingreso efectivo", annual: x.effectiveGrossIncome, strong: true },
+    { label: selfManaged ? "Administración (la manejas tú)" : `Administración ${pct(d.managementPct, 0)}`, annual: -e.management },
+    { label: `Mantenimiento ${pct(d.maintenancePct, 0)}`, annual: -e.maintenance },
+    { label: `Reserva para reparaciones grandes (capex) ${pct(d.capexPct, 0)}`, annual: -e.capex },
+    { label: "Impuestos", annual: -e.taxes },
+    { label: "Aseguranza", annual: -e.insurance },
+    { label: "HOA", annual: -e.hoa, hide: !e.hoa },
+    { label: "Servicios (utilities)", annual: -e.utilities, hide: !e.utilities },
+    { label: "Otros gastos", annual: -e.other, hide: !e.other },
+    { label: "Ingreso neto antes del préstamo (NOI)", annual: x.noi, strong: true },
+    { label: "Pago del préstamo", annual: -x.annualDebtService, hide: !x.annualDebtService },
+    { label: x.annualDebtService ? "Flujo después del préstamo" : "Flujo (sin préstamo)", annual: x.annualCashFlow, strong: true },
+  ];
+  return (
+    <details className="group mt-4 rounded-xl bg-navy-50 p-3">
+      <summary className="cursor-pointer list-none text-sm font-semibold text-navy-900">
+        <span className="mr-1 inline-block transition group-open:rotate-90">▸</span>
+        ¿De dónde sale el flujo de {usd(x.monthlyCashFlow)} al mes? <span className="font-normal text-slate-500">(toca para ver y editar)</span>
+      </summary>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500">
+              <th className="py-1 pr-2 font-medium">Concepto</th>
+              <th className="py-1 pr-2 text-right font-medium">Al año</th>
+              <th className="py-1 text-right font-medium">Al mes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.filter((r) => !r.hide).map((r) => (
+              <tr key={r.label} className={r.strong ? "border-t border-navy-100 font-semibold text-navy-900" : "text-slate-700"}>
+                <td className="py-1 pr-2">{r.label}</td>
+                <td className={`py-1 pr-2 text-right tabular-nums ${r.strong && r.annual < 0 ? "text-risk-600" : ""}`}>{usd(r.annual || 0)}</td>
+                <td className={`py-1 text-right tabular-nums ${r.strong && r.annual < 0 ? "text-risk-600" : ""}`}>{usd(r.annual / 12 || 0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-4 text-xs font-semibold text-navy-900">Ajusta los gastos</div>
+      <label className="mt-2 flex items-center gap-2 text-sm text-navy-900">
+        <input type="checkbox" checked={selfManaged} onChange={(ev) => setDeal({ managementPct: ev.target.checked ? 0 : 0.08 })} />
+        Yo voy a administrar la propiedad (sin costo de administración)
+      </label>
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <NumberField label="Vacancia" unit="pct" value={d.vacancyPct} onChange={(v) => setDeal({ vacancyPct: v })} min={0} />
+        <NumberField label="Administración" unit="pct" value={d.managementPct} onChange={(v) => setDeal({ managementPct: v })} min={0} />
+        <NumberField label="Mantenimiento" unit="pct" value={d.maintenancePct} onChange={(v) => setDeal({ maintenancePct: v })} min={0} />
+        <NumberField label="Capex (reserva)" unit="pct" value={d.capexPct} onChange={(v) => setDeal({ capexPct: v })} min={0} />
+        <NumberField label="HOA al mes" value={d.hoaMonthly} onChange={(v) => setDeal({ hoaMonthly: v })} min={0} />
+        <NumberField label="Servicios al mes" value={d.utilitiesMonthly} onChange={(v) => setDeal({ utilitiesMonthly: v })} min={0} />
+        <NumberField label="Otros gastos al mes" value={d.otherExpensesMonthly} onChange={(v) => setDeal({ otherExpensesMonthly: v })} min={0} />
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">
+        Los porcentajes se calculan sobre el ingreso efectivo. Aunque la manejes tú, conviene dejar algo para mantenimiento y capex.
+        Estos cambios se aplican en toda la app.
+      </p>
+    </details>
   );
 }
