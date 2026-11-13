@@ -1,8 +1,9 @@
 "use client";
-import { AlertTriangle, ExternalLink } from "lucide-react";
+import { AlertTriangle, ArrowRight, ExternalLink } from "lucide-react";
 import type { Field } from "@/lib/data/types";
-import { date, num, pct, usd } from "@/lib/format";
-import { Card, DataBadge, NumberField, Stat, tone, VerdictBadge } from "./ui";
+import type { MethodId, MethodSummary } from "@/lib/engine/financing";
+import { date, num, pct, ratio, usd } from "@/lib/format";
+import { Card, DataBadge, NumberField, RiskBadge, Stat, tone, VerdictBadge } from "./ui";
 import type { Analysis } from "./useAnalysis";
 
 function Fact<T>({ label, f, render }: { label: string; f: Field<T>; render?: (v: T) => string }) {
@@ -46,7 +47,7 @@ function ExternalLinks({ address }: { address: string }) {
   );
 }
 
-export function Summary({ a }: { a: Analysis }) {
+export function Summary({ a, onOpenFinancing }: { a: Analysis; onOpenFinancing?: () => void }) {
   const { lookup, state, setDeal, r } = a;
   const d = state.deal;
   const o = state.origins;
@@ -118,6 +119,7 @@ export function Summary({ a }: { a: Analysis }) {
             <NumberField label="Aseguranza" value={d.insuranceAnnual} onChange={(v) => setDeal({ insuranceAnnual: v })} kind={o.insuranceAnnual?.kind}
               hint={`Al año · ${usd(d.insuranceAnnual / 12)} al mes${o.insuranceAnnual?.source ? ` · ${o.insuranceAnnual.source}` : ""}`} min={0} />
           </div>
+          <FinancingPicker a={a} onOpen={onOpenFinancing} />
           <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl bg-navy-50 p-4 md:grid-cols-4">
             <Stat label="Cash-on-cash" value={pct(r.rental.cashOnCash)} />
             <Stat label="Cap rate" value={pct(r.rental.capRate)} />
@@ -128,6 +130,63 @@ export function Summary({ a }: { a: Analysis }) {
             El indicador es un filtro inicial y no sustituye el análisis financiero completo de cada pestaña.
           </p>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+const METHOD_LABEL: Record<MethodId, string> = {
+  cash: "Cash",
+  hard_money: "Hard money",
+  socios: "Socios capitalistas",
+  privado: "Prestamista privado",
+};
+
+/** Elegir uno de los 4 financiamientos y ver sus números en el resumen. */
+function FinancingPicker({ a, onOpen }: { a: Analysis; onOpen?: () => void }) {
+  const { state: s, set, r } = a;
+  const byId: Record<MethodId, MethodSummary> = {
+    cash: r.cash,
+    hard_money: r.hardMoney[s.lenderIndex] ?? r.hardMoney[0],
+    socios: r.partners,
+    privado: r.priv,
+  };
+  const choice = s.financingChoice;
+  const m = byId[choice];
+  return (
+    <div className="mt-5 border-t border-navy-50 pt-4">
+      <div className="mb-2 text-sm font-semibold text-navy-900">¿Cómo lo vas a financiar?</div>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        {(Object.keys(METHOD_LABEL) as MethodId[]).map((id) => (
+          <button key={id} type="button" onClick={() => set("financingChoice", id)} aria-pressed={choice === id}
+            className={`rounded-xl border px-3 py-2.5 text-left transition ${choice === id ? "border-navy-900 bg-navy-900 text-white" : "border-navy-100 bg-white text-navy-900 hover:bg-navy-50"}`}>
+            <div className="text-sm font-semibold">{METHOD_LABEL[id]}</div>
+            <div className={`text-[11px] ${choice === id ? "text-navy-100/80" : "text-slate-500"}`}>Capital: {usd(byId[id].capitalRequired)}</div>
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 rounded-xl border border-navy-100 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-navy-900">Resultado con {m.label}</div>
+          <RiskBadge risk={m.maturityRisk} />
+        </div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+          <Stat label="Capital que necesitas" value={usd(m.capitalRequired)} />
+          <Stat label="Préstamo" value={usd(m.loanAmount)} />
+          <Stat label="Pago mensual" value={usd(m.monthlyPayment)} />
+          <Stat label="Flujo mensual (renta)" value={usd(m.rental.monthlyCashFlow)} tone={tone(m.rental.monthlyCashFlow)} />
+          <Stat label="Cash-on-cash" value={pct(m.rental.cashOnCash)} />
+          <Stat label="DSCR" value={ratio(m.rental.dscr)} />
+          <Stat label="Ganancia si vendes" value={usd(m.flip.netProfit)} tone={tone(m.flip.netProfit)} sub={`ROI ${pct(m.flip.roiOnCash)}`} />
+          {m.balloon > 0 && <Stat label="Saldo al vencimiento" value={usd(m.balloon)} />}
+        </div>
+        {m.notes[0] && <p className="mt-3 text-xs text-slate-500">{m.notes[0]}</p>}
+        {onOpen && (
+          <button type="button" onClick={() => { set("financingSub", choice); onOpen(); }}
+            className="mt-3 inline-flex items-center gap-1 rounded-lg bg-navy-50 px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-navy-100">
+            Ajustar los términos de {METHOD_LABEL[choice]} <ArrowRight size={12} />
+          </button>
+        )}
       </div>
     </div>
   );

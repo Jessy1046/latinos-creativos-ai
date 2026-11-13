@@ -38,8 +38,9 @@ function MethodResults({ m }: { m: MethodSummary }) {
 }
 
 export function FinancingTab({ a }: { a: Analysis }) {
-  const [sub, setSub] = useState<Sub>("comparar");
   const { state: s, set, r } = a;
+  const [sub, setSubLocal] = useState<Sub>(s.financingSub);
+  const setSub = (v: Sub) => { setSubLocal(v); set("financingSub", v); };
 
   return (
     <div className="space-y-4">

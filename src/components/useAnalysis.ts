@@ -11,7 +11,7 @@ import { AdjustmentRates, DEFAULT_ADJ, estimateArv, estimateRent, RentComp, Sale
 import { analyzeFlip, DEFAULT_FLIP, FlipInputs, maxOfferForTargetProfit } from "@/lib/engine/flip";
 import {
   cashMethod, DEFAULT_HARD_MONEY, DEFAULT_PARTNERS, DEFAULT_PARTNERS_REFI, DEFAULT_PRIVATE, hardMoneyLoan, hardMoneyMethod,
-  HardMoneyInputs, partnersMethod, PartnersInputs, partnersRefi, PartnersRefiInputs, privateLenderMethod, PrivateLenderInputs,
+  HardMoneyInputs, MethodId, partnersMethod, PartnersInputs, partnersRefi, PartnersRefiInputs, privateLenderMethod, PrivateLenderInputs,
 } from "@/lib/engine/financing";
 import { analyzeRental, conventionalPurchase, project } from "@/lib/engine/rental";
 import { flipRule, rentRule, Verdict } from "@/lib/engine/rules";
@@ -48,6 +48,10 @@ export interface AnalysisState {
   lenderIndex: number;
   partners: PartnersInputs;
   partnersRefi: PartnersRefiInputs;
+  /** Financiamiento elegido en el resumen. */
+  financingChoice: MethodId;
+  /** Sub-pestaña a abrir en Financiamiento (desde el resumen). */
+  financingSub: "comparar" | MethodId;
   priv: PrivateLenderInputs;
   brrrr: BrrrrInputs;
   brrrrUsesHardMoney: boolean;
@@ -70,6 +74,8 @@ const initial: AnalysisState = {
   lenderIndex: 0,
   partners: DEFAULT_PARTNERS,
   partnersRefi: DEFAULT_PARTNERS_REFI,
+  financingChoice: "cash",
+  financingSub: "comparar",
   priv: DEFAULT_PRIVATE,
   brrrr: DEFAULT_BRRRR,
   brrrrUsesHardMoney: true,

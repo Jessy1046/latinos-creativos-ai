@@ -133,8 +133,8 @@ export default function Home() {
 
       {started && (
         <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
-          <Summary a={a} />
-          <Tabs tabs={[...TABS]} value={tab} onChange={setTab} />
+          <Summary a={a} onOpenFinancing={() => { setTab("financiamiento"); document.getElementById("pestanas")?.scrollIntoView({ behavior: "smooth" }); }} />
+          <div id="pestanas" className="scroll-mt-4"><Tabs tabs={[...TABS]} value={tab} onChange={setTab} /></div>
           <div className="fade-in" key={tab}>
             {tab === "analista" && <AnalystTab a={a} />}
             {tab === "renta" && <RentalTab a={a} />}
