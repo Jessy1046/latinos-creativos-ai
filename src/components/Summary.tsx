@@ -108,11 +108,15 @@ export function Summary({ a }: { a: Analysis }) {
               tone={r.flipR.verdict === "cumple" ? "money" : r.flipR.verdict === "no_cumple" ? "risk" : "gold"}
               sub={<span className="flex items-center gap-1">Oferta máx. <VerdictBadge v={r.flipR.verdict} /></span>} />
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-navy-50 pt-4 md:grid-cols-4">
+          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-navy-50 pt-4 md:grid-cols-3">
             <NumberField label="Precio de compra" value={d.purchasePrice} onChange={(v) => setDeal({ purchasePrice: v })} kind={o.purchasePrice?.kind} hint={o.purchasePrice?.source} min={0} />
             <NumberField label="Reparaciones estimadas" value={d.repairs} onChange={(v) => setDeal({ repairs: v })} kind={o.repairs?.kind} hint={o.repairs?.source} min={0} />
             <NumberField label="ARV estimado" value={d.arv} onChange={(v) => setDeal({ arv: v })} kind={o.arv?.kind} hint={o.arv?.source} min={0} />
             <NumberField label="Renta mensual proyectada" value={d.monthlyRent} onChange={(v) => setDeal({ monthlyRent: v })} kind={o.monthlyRent?.kind} hint={o.monthlyRent?.source} min={0} />
+            <NumberField label="Impuestos al año" value={d.taxesAnnual} onChange={(v) => setDeal({ taxesAnnual: v })} kind={o.taxesAnnual?.kind}
+              hint={`${usd(d.taxesAnnual / 12)} al mes${o.taxesAnnual?.source ? ` · ${o.taxesAnnual.source}` : ""}`} min={0} />
+            <NumberField label="Aseguranza" value={d.insuranceAnnual} onChange={(v) => setDeal({ insuranceAnnual: v })} kind={o.insuranceAnnual?.kind}
+              hint={`Al año · ${usd(d.insuranceAnnual / 12)} al mes${o.insuranceAnnual?.source ? ` · ${o.insuranceAnnual.source}` : ""}`} min={0} />
           </div>
           <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl bg-navy-50 p-4 md:grid-cols-4">
             <Stat label="Cash-on-cash" value={pct(r.rental.cashOnCash)} />

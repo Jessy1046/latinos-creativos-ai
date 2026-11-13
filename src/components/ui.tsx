@@ -94,7 +94,7 @@ export function NumberField({ label, value, onChange, unit = "usd", hint, kind, 
     <label className="block min-w-0">
       <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-600">
         <span className="truncate">{label}</span>
-        {kind && <DataBadge kind={kind} />}
+        {kind && <span className="hidden shrink-0 sm:inline-flex"><DataBadge kind={kind} /></span>}
       </span>
       <span className="flex items-center rounded-lg border border-navy-100 bg-white px-2.5 transition focus-within:border-navy-700 focus-within:ring-2 focus-within:ring-navy-100">
         {prefix && <span className="mr-1 text-sm text-slate-400">{prefix}</span>}
@@ -118,6 +118,7 @@ export function NumberField({ label, value, onChange, unit = "usd", hint, kind, 
         />
         {suffix && <span className="ml-1 text-xs text-slate-400">{suffix}</span>}
       </span>
+      {kind && <span className="mt-1 inline-flex sm:hidden"><DataBadge kind={kind} /></span>}
       {hint && <span className="mt-1 block text-[11px] leading-tight text-slate-400">{hint}</span>}
     </label>
   );
