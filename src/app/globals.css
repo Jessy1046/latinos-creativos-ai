@@ -1,0 +1,42 @@
+/* Escanea src/ explícitamente: el servidor puede arrancar desde otra carpeta. */
+@import "tailwindcss" source("../");
+
+@theme {
+  --color-navy-950: #061428;
+  --color-navy-900: #0b1f3a;
+  --color-navy-800: #13294b;
+  --color-navy-700: #1d3a66;
+  --color-navy-100: #e6ecf5;
+  --color-navy-50: #f3f6fb;
+  --color-gold-500: #c9a227;
+  --color-gold-400: #d9b84a;
+  --color-gold-100: #f8f0d4;
+  --color-money-600: #138a4b;
+  --color-money-500: #1f9d55;
+  --color-money-100: #dcf5e6;
+  --color-risk-600: #c0392b;
+  --color-risk-100: #fbe3e0;
+  --color-warn-600: #b7791f;
+  --color-warn-100: #fdf1d8;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: #ffffff;
+  color: #0b1f3a;
+  font-feature-settings: "tnum" 1;
+}
+
+.fade-in {
+  animation: fade-in 0.35s ease-out both;
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  .print-break { break-before: page; }
+  body { font-size: 11px; }
+}

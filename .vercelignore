@@ -1,0 +1,6 @@
+.tools
+.env*
+!.env.example
+.next
+node_modules
+.claude
