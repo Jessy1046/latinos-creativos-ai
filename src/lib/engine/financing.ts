@@ -4,6 +4,7 @@
  * la comparación sea justa.
  */
 import { balanceAfter, LoanType, monthlyDebtService, safeDiv } from "./finance";
+import { dscrMaxLoan, lenderDscrFor } from "./brrrr";
 import { analyzeFlip, FlipInputs, FlipResult } from "./flip";
 import { analyzeRental, NO_DEBT, RentalResult } from "./rental";
 import type { DealInputs, Settings } from "./types";
@@ -245,6 +246,159 @@ export function partnersMethod(deal: DealInputs, flip: FlipInputs, settings: Set
     contributed,
     shortfall,
     shareTotal,
+  };
+}
+
+// ---------------------------------------------------------------- SOCIOS + REFINANCIAMIENTO DSCR
+
+/**
+ * Salida para los socios: compran en efectivo, rentan y refinancian con un
+ * préstamo DSCR. El cash-out devuelve capital a los socios y el flujo
+ * posterior se reparte sobre el capital que queda dentro.
+ */
+export interface PartnersRefiInputs {
+  /** Tasación al refinanciar (0 = usar el ARV). */
+  appraisal: number;
+  ltv: number;
+  rate: number;
+  termYears: number;
+  closingPct: number;
+  reserves: number;
+  minDscr: number;
+  dscrBasis: "renta" | "noi";
+  /** Límite máximo del prestamista (0 = sin límite). */
+  lenderMaxLoan: number;
+  /** Meses desde la compra hasta el refinanciamiento (seasoning). */
+  seasoningMonths: number;
+  /**
+   * Cómo se reparte el cash-out:
+   * - "capital_primero": primero devuelve capital (prorrata), el excedente por % de ganancias.
+   * - "porcentaje": todo el cash-out por % de ganancias.
+   */
+  cashOutSplit: "capital_primero" | "porcentaje";
+}
+
+export const DEFAULT_PARTNERS_REFI: PartnersRefiInputs = {
+  appraisal: 0,
+  ltv: 0.75,
+  rate: 0.075,
+  termYears: 30,
+  closingPct: 0.03,
+  reserves: 3000,
+  minDscr: 1.2,
+  dscrBasis: "renta",
+  lenderMaxLoan: 0,
+  seasoningMonths: 6,
+  cashOutSplit: "capital_primero",
+};
+
+export interface PartnerRefiResult {
+  name: string;
+  role: Partner["role"];
+  capital: number;
+  cashOut: number;
+  capitalReturned: number;
+  capitalRemaining: number;
+  annualCashFlowAfter: number;
+  cashOnCashAfter: number | null;
+  /** % del capital aportado que ya se recuperó. */
+  recoveredPct: number | null;
+}
+
+export interface PartnersRefiResult {
+  appraisal: number;
+  ltvLoan: number;
+  dscrLoan: number;
+  lenderCap: number | null;
+  newLoan: number;
+  limitedBy: "LTV" | "DSCR" | "Prestamista";
+  closingCosts: number;
+  reserves: number;
+  cashOut: number;
+  monthlyTia: number;
+  maxMonthlyPi: number;
+  monthlyPayment: number;
+  monthlyPitia: number;
+  lenderDscr: number | null;
+  contributed: number;
+  capitalReturned: number;
+  capitalRemaining: number;
+  before: RentalResult;
+  after: RentalResult;
+  partnerResults: PartnerRefiResult[];
+  notes: string[];
+}
+
+export function partnersRefi(deal: DealInputs, settings: Settings, input: PartnersInputs, f: PartnersRefiInputs): PartnersRefiResult {
+  const contributed = input.partners.reduce((a, p) => a + p.capital, 0);
+  const appraisal = f.appraisal > 0 ? f.appraisal : deal.arv;
+  const ltvLoan = appraisal * f.ltv;
+  const { monthlyTia, maxMonthlyDebt, dscrLoan } = dscrMaxLoan(deal, {
+    minDscr: f.minDscr, dscrBasis: f.dscrBasis, refiRate: f.rate, refiTermYears: f.termYears,
+  });
+  const lenderCap = f.lenderMaxLoan > 0 ? f.lenderMaxLoan : null;
+  const newLoan = Math.max(0, Math.min(ltvLoan, dscrLoan, lenderCap ?? Infinity));
+  const limitedBy = newLoan === ltvLoan ? "LTV" : newLoan === dscrLoan ? "DSCR" : "Prestamista";
+  const closingCosts = newLoan * f.closingPct;
+  const cashOut = newLoan - closingCosts - f.reserves;
+  const distributable = Math.max(0, cashOut);
+
+  // Reparto del cash-out
+  const outs = input.partners.map(() => 0);
+  if (f.cashOutSplit === "capital_primero" && contributed > 0) {
+    const toCapital = Math.min(distributable, contributed);
+    input.partners.forEach((p, i) => (outs[i] += (toCapital * p.capital) / contributed));
+    const excess = distributable - toCapital;
+    input.partners.forEach((p, i) => (outs[i] += excess * p.profitShare));
+  } else {
+    input.partners.forEach((p, i) => (outs[i] += distributable * p.profitShare));
+  }
+  const returned = input.partners.map((p, i) => Math.min(outs[i], p.capital));
+  const remaining = input.partners.map((p, i) => p.capital - returned[i]);
+  const capitalReturned = returned.reduce((a, b) => a + b, 0);
+  const capitalRemaining = remaining.reduce((a, b) => a + b, 0) + (cashOut < 0 ? -cashOut : 0);
+
+  const before = analyzeRental(deal, NO_DEBT, contributed, settings);
+  const after = analyzeRental(
+    { ...deal, arv: appraisal },
+    { loanAmount: newLoan, rate: f.rate, termYears: f.termYears, type: "amortizado" },
+    capitalRemaining,
+    settings,
+  );
+  const monthlyPitia = after.monthlyDebtService + monthlyTia;
+  const lenderDscr = lenderDscrFor(deal, f.dscrBasis, after.monthlyDebtService, monthlyTia, after.dscr);
+
+  // Flujo después del refinanciamiento: preferente sobre el capital que sigue dentro.
+  const afterPartners = input.partners.map((p, i) => ({ ...p, capital: remaining[i] }));
+  const prefYear = afterPartners.map((p) => (p.role === "capitalista" ? p.capital * input.prefReturn : 0));
+  const cf = distribute(afterPartners, after.annualCashFlow, prefYear);
+
+  const partnerResults: PartnerRefiResult[] = input.partners.map((p, i) => ({
+    name: p.name,
+    role: p.role,
+    capital: p.capital,
+    cashOut: outs[i],
+    capitalReturned: returned[i],
+    capitalRemaining: remaining[i],
+    annualCashFlowAfter: cf[i],
+    cashOnCashAfter: remaining[i] > 0.5 ? cf[i] / remaining[i] : null,
+    recoveredPct: p.capital > 0 ? returned[i] / p.capital : null,
+  }));
+
+  const notes: string[] = [];
+  if (deal.monthlyRent <= 0) notes.push("Agrega la renta mensual: el préstamo DSCR depende de ella.");
+  if (appraisal <= 0) notes.push("Agrega el ARV o una tasación para calcular el préstamo por LTV.");
+  if (cashOut < 0) notes.push(`El nuevo préstamo no cubre costos y reservas: los socios tendrían que poner ${Math.round(-cashOut).toLocaleString("en-US")} USD más. No conviene refinanciar con estos números.`);
+  else if (contributed > 0 && capitalReturned >= contributed - 0.5) notes.push("El cash-out devuelve todo el capital aportado: los socios se quedan con la propiedad y su flujo sin dinero propio dentro.");
+  if (lenderDscr !== null && lenderDscr < f.minDscr - 0.001) notes.push(`El DSCR resultante (${lenderDscr.toFixed(2)}) queda por debajo del mínimo del prestamista (${f.minDscr.toFixed(2)}).`);
+  if (after.monthlyCashFlow < 0) notes.push("Después del refinanciamiento el flujo mensual es negativo: la renta no cubre la nueva deuda y los gastos.");
+  notes.push(`Muchos prestamistas DSCR piden ${f.seasoningMonths} meses o más de seasoning (propiedad a nombre de la LLC y rentada) antes de usar la tasación nueva.`);
+  notes.push("Simulación: la aprobación, la tasación y la tasa dependen del prestamista. El reparto del cash-out debe estar escrito en el operating agreement.");
+
+  return {
+    appraisal, ltvLoan, dscrLoan, lenderCap, newLoan, limitedBy, closingCosts, reserves: f.reserves, cashOut,
+    monthlyTia, maxMonthlyPi: maxMonthlyDebt, monthlyPayment: after.monthlyDebtService, monthlyPitia, lenderDscr,
+    contributed, capitalReturned, capitalRemaining, before, after, partnerResults, notes,
   };
 }
 

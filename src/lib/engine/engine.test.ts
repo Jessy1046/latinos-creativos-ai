@@ -3,7 +3,7 @@ import { amortizedPayment, amortizationSchedule, remainingBalance, principalFrom
 import { rentRule, flipRule } from "./rules";
 import { analyzeRental, conventionalPurchase, operating, NO_DEBT, project } from "./rental";
 import { analyzeFlip, DEFAULT_FLIP, maxOfferForTargetProfit } from "./flip";
-import { cashMethod, distribute, hardMoneyLoan, DEFAULT_HARD_MONEY, privateLenderMethod, DEFAULT_PRIVATE } from "./financing";
+import { cashMethod, distribute, hardMoneyLoan, DEFAULT_HARD_MONEY, privateLenderMethod, DEFAULT_PRIVATE, partnersRefi, DEFAULT_PARTNERS_REFI } from "./financing";
 import { analyzeBrrrr, DEFAULT_BRRRR, simulateExpansion } from "./brrrr";
 import { estimateArv, SaleComp } from "./comps";
 import { DEFAULT_SETTINGS, DealInputs } from "./types";
@@ -221,5 +221,49 @@ describe("tabla de amortización", () => {
     const extra = amortizationSchedule(200000, 0.06, 30, 200);
     expect(extra.payoffMonths).toBeLessThan(360);
     expect(extra.totalInterest).toBeLessThan(base.totalInterest);
+  });
+});
+
+describe("socios + refinanciamiento DSCR", () => {
+  const partners = {
+    prefReturn: 0,
+    partners: [
+      { name: "Op", role: "operador" as const, capital: 0, profitShare: 0.5 },
+      { name: "Cap", role: "capitalista" as const, capital: 102400, profitShare: 0.5 },
+    ],
+  };
+  it("el préstamo respeta el DSCR mínimo y el LTV", () => {
+    const r = partnersRefi(deal, DEFAULT_SETTINGS, partners, DEFAULT_PARTNERS_REFI);
+    expect(r.newLoan).toBeLessThanOrEqual(r.ltvLoan + 1e-6);
+    expect(r.newLoan).toBeLessThanOrEqual(r.dscrLoan + 1e-6);
+    // Renta 1,500 / 1.2 = 1,250 de PITIA; menos 300 de TIA = 950 de P&I
+    expect(r.maxMonthlyPi).toBeCloseTo(950, 6);
+    expect(r.limitedBy).toBe("LTV"); // 75% de 140,000 = 105,000 < préstamo por DSCR
+    expect(r.newLoan).toBeCloseTo(105000, 6);
+    expect(r.lenderDscr!).toBeGreaterThanOrEqual(1.2 - 1e-6);
+  });
+  it("con renta baja el DSCR limita el préstamo y el DSCR resultante es el mínimo", () => {
+    const r = partnersRefi({ ...deal, monthlyRent: 1000 }, DEFAULT_SETTINGS, partners, DEFAULT_PARTNERS_REFI);
+    expect(r.limitedBy).toBe("DSCR");
+    expect(r.lenderDscr!).toBeCloseTo(1.2, 6);
+  });
+  it("el cash-out devuelve capital primero al capitalista", () => {
+    const r = partnersRefi(deal, DEFAULT_SETTINGS, partners, DEFAULT_PARTNERS_REFI);
+    const cap = r.partnerResults[1]!;
+    expect(r.cashOut).toBeGreaterThan(0);
+    expect(cap.cashOut).toBeCloseTo(Math.min(r.cashOut, 102400), 6);
+    expect(cap.capitalRemaining).toBeCloseTo(102400 - cap.capitalReturned, 6);
+    expect(r.partnerResults[0]!.cashOut).toBeCloseTo(Math.max(0, r.cashOut - 102400) * 0.5, 6);
+  });
+  it("con préstamo grande todo el capital regresa y el excedente se reparte", () => {
+    const r = partnersRefi({ ...deal, monthlyRent: 3000, arv: 250000 }, DEFAULT_SETTINGS, partners, { ...DEFAULT_PARTNERS_REFI, reserves: 0, closingPct: 0 });
+    expect(r.capitalReturned).toBeCloseTo(102400, 6);
+    expect(r.partnerResults[1]!.cashOnCashAfter).toBeNull();
+    expect(r.partnerResults[0]!.cashOut).toBeGreaterThan(0);
+  });
+  it("sin renta no hay préstamo DSCR", () => {
+    const r = partnersRefi({ ...deal, monthlyRent: 0 }, DEFAULT_SETTINGS, partners, DEFAULT_PARTNERS_REFI);
+    expect(r.newLoan).toBe(0);
+    expect(r.cashOut).toBeLessThan(0);
   });
 });

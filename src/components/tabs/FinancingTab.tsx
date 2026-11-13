@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { DEFAULT_HARD_MONEY, HardMoneyInputs, MethodSummary, Partner } from "@/lib/engine/financing";
+import { DEFAULT_HARD_MONEY, HardMoneyInputs, MethodSummary, Partner, PartnersRefiInputs } from "@/lib/engine/financing";
 import { pct, ratio, usd, years } from "@/lib/format";
 import { Card, Grid, Note, NumberField, RiskBadge, Row, Select, Stat, Table, Tabs, tone } from "../ui";
 import { Analysis, withPartnerCapital } from "../useAnalysis";
@@ -173,6 +173,96 @@ function Partners({ a }: { a: Analysis }) {
         </Table>
         <div className="mt-3"><Note>En una venta, primero se devuelve el capital aportado; después el retorno preferente; el resto se reparte por % de ganancias. Las pérdidas reducen el capital de cada socio en proporción a lo aportado.</Note></div>
       </Card>
+      <PartnersRefi a={a} />
+    </div>
+  );
+}
+
+function PartnersRefi({ a }: { a: Analysis }) {
+  const { state: s, set, r } = a;
+  const f = s.partnersRefi;
+  const x = r.partnersRefi;
+  const upd = (patch: Partial<PartnersRefiInputs>) => set("partnersRefi", { ...f, ...patch });
+  const belowMin = x.lenderDscr !== null && x.lenderDscr < f.minDscr - 0.001;
+  return (
+    <div className="grid gap-4 lg:grid-cols-3">
+      <Card title="Refinanciamiento con préstamo DSCR" subtitle="Compran en efectivo, rentan y refinancian para devolver capital a los socios.">
+        <Grid cols={2}>
+          <NumberField label="Tasación" value={f.appraisal || s.deal.arv} onChange={(v) => upd({ appraisal: v })} hint={f.appraisal ? "Tu dato" : "Por defecto = ARV"} />
+          <NumberField label="LTV permitido" unit="pct" value={f.ltv} onChange={(v) => upd({ ltv: v })} />
+          <NumberField label="Interés DSCR" unit="pct" value={f.rate} onChange={(v) => upd({ rate: v })} />
+          <NumberField label="Plazo" unit="años" value={f.termYears} onChange={(v) => upd({ termYears: Math.max(1, v) })} />
+          <NumberField label="DSCR mínimo" unit="x" value={f.minDscr} onChange={(v) => upd({ minDscr: v })} />
+          <Select label="Base del DSCR" value={f.dscrBasis} onChange={(v) => upd({ dscrBasis: v })}
+            options={[{ value: "renta", label: "Renta ÷ PITIA" }, { value: "noi", label: "NOI ÷ deuda" }]} />
+          <NumberField label="Costos de refinanciar" unit="pct" value={f.closingPct} onChange={(v) => upd({ closingPct: v })} />
+          <NumberField label="Reservas exigidas" value={f.reserves} onChange={(v) => upd({ reserves: v })} />
+          <NumberField label="Límite del prestamista" value={f.lenderMaxLoan} onChange={(v) => upd({ lenderMaxLoan: v })} hint="0 = sin límite" />
+          <NumberField label="Seasoning" unit="meses" value={f.seasoningMonths} onChange={(v) => upd({ seasoningMonths: Math.max(0, v) })} />
+        </Grid>
+        <div className="mt-3">
+          <Select label="Reparto del cash-out" value={f.cashOutSplit} onChange={(v) => upd({ cashOutSplit: v })}
+            options={[{ value: "capital_primero", label: "Primero devolver capital" }, { value: "porcentaje", label: "Por % de ganancias" }]} />
+        </div>
+      </Card>
+
+      <div className="space-y-4 lg:col-span-2">
+        <Card title="Cálculo del préstamo DSCR">
+          <div className="grid gap-6 md:grid-cols-2">
+            <div>
+              <Row label={`Préstamo por LTV (${pct(f.ltv, 0)} × ${usd(x.appraisal)})`} value={usd(x.ltvLoan)} />
+              {f.dscrBasis === "renta" ? (
+                <>
+                  <Row label="Renta mensual" value={usd(s.deal.monthlyRent)} />
+                  <Row indent label={`Pago máximo (renta ÷ ${ratio(f.minDscr)})`} value={usd(f.minDscr > 0 ? s.deal.monthlyRent / f.minDscr : 0)} />
+                  <Row indent label="Menos impuestos, seguro y HOA" value={usd(-x.monthlyTia)} />
+                  <Row indent label="Queda para principal + interés" value={usd(x.maxMonthlyPi)} />
+                </>
+              ) : (
+                <Row label={`Pago máximo (NOI ÷ ${ratio(f.minDscr)} ÷ 12)`} value={usd(x.maxMonthlyPi)} />
+              )}
+              <Row label={`Préstamo máximo por DSCR ${ratio(f.minDscr)}`} value={usd(x.dscrLoan)} />
+              <Row strong label={`Nuevo préstamo (limitado por ${x.limitedBy})`} value={usd(x.newLoan)} />
+            </div>
+            <div>
+              <Row label="Menos costos de refinanciar" value={usd(-x.closingCosts)} />
+              <Row label="Menos reservas" value={usd(-x.reserves)} />
+              <Row strong label="Cash-out para los socios" value={usd(x.cashOut)} tone={tone(x.cashOut)} />
+              <Row label="Pago mensual (principal + interés)" value={usd(x.monthlyPayment, 2)} />
+              {f.dscrBasis === "renta" && <Row label="Pago total (PITIA)" value={usd(x.monthlyPitia, 2)} />}
+              <Row strong label="DSCR resultante" value={ratio(x.lenderDscr)} tone={belowMin ? "risk" : "money"} />
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Antes y después del refinanciamiento">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <Stat label="Flujo mensual antes" value={usd(x.before.monthlyCashFlow)} tone={tone(x.before.monthlyCashFlow)} />
+            <Stat label="Flujo mensual después" value={usd(x.after.monthlyCashFlow)} tone={tone(x.after.monthlyCashFlow)} />
+            <Stat label="Capital devuelto" value={usd(x.capitalReturned)} sub={`de ${usd(x.contributed)}`} tone="money" />
+            <Stat label="Capital que queda dentro" value={usd(x.capitalRemaining)} />
+          </div>
+        </Card>
+
+        <Card title="Resultado por socio después del refinanciamiento">
+          <Table head={["Socio", "Capital", "Recibe del cash-out", "Capital recuperado", "Queda dentro", "Flujo anual después", "Cash-on-cash después"]}>
+            {x.partnerResults.map((p, i) => (
+              <tr key={i}>
+                <td className="px-2 py-2 font-medium">{p.name}</td>
+                <td className="px-2 py-2">{usd(p.capital)}</td>
+                <td className="px-2 py-2">{usd(p.cashOut)}</td>
+                <td className="px-2 py-2">{p.recoveredPct === null ? "—" : pct(p.recoveredPct, 0)}</td>
+                <td className="px-2 py-2">{usd(p.capitalRemaining)}</td>
+                <td className="px-2 py-2">{usd(p.annualCashFlowAfter)}</td>
+                <td className="px-2 py-2">{p.cashOnCashAfter === null ? (p.capital > 0 ? "∞ (ya recuperó su capital)" : "Sin capital") : pct(p.cashOnCashAfter)}</td>
+              </tr>
+            ))}
+          </Table>
+          <ul className="mt-3 space-y-1.5">
+            {x.notes.map((n) => <li key={n}><Note tone={n.startsWith("El nuevo préstamo") || n.includes("por debajo") || n.includes("negativo") ? "warn" : "info"}>{n}</Note></li>)}
+          </ul>
+        </Card>
+      </div>
     </div>
   );
 }

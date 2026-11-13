@@ -94,6 +94,35 @@ export interface BrrrrResult {
   repeatCapital: number;
 }
 
+export interface DscrTerms {
+  minDscr: number;
+  dscrBasis: "renta" | "noi";
+  refiRate: number;
+  refiTermYears: number;
+}
+
+/**
+ * Préstamo máximo que permite el DSCR mínimo del prestamista.
+ * - "renta": renta mensual ÷ PITIA ≥ DSCR mínimo.
+ * - "noi": NOI ÷ servicio de deuda ≥ DSCR mínimo.
+ */
+export function dscrMaxLoan(deal: DealInputs, t: DscrTerms) {
+  const op = operating(deal);
+  const monthlyTia = (deal.taxesAnnual + deal.insuranceAnnual) / 12 + deal.hoaMonthly;
+  const maxMonthlyDebt =
+    t.dscrBasis === "renta"
+      ? Math.max(0, (t.minDscr > 0 ? deal.monthlyRent / t.minDscr : 0) - monthlyTia)
+      : op.noi > 0 && t.minDscr > 0 ? op.noi / t.minDscr / 12 : 0;
+  return { monthlyTia, maxMonthlyDebt, dscrLoan: principalFromPayment(maxMonthlyDebt, t.refiRate, t.refiTermYears) };
+}
+
+/** DSCR que ve el prestamista con un pago de principal + interés dado. */
+export function lenderDscrFor(deal: DealInputs, basis: "renta" | "noi", monthlyPi: number, monthlyTia: number, noiDscr: number | null) {
+  if (basis === "noi") return noiDscr;
+  const pitia = monthlyPi + monthlyTia;
+  return pitia > 0 ? deal.monthlyRent / pitia : null;
+}
+
 export function analyzeBrrrr(deal: DealInputs, b: BrrrrInputs, settings: Settings): BrrrrResult {
   const closing = deal.purchasePrice * deal.buyClosingPct;
   const loan = Math.max(0, b.initialLoanAmount);
@@ -112,13 +141,7 @@ export function analyzeBrrrr(deal: DealInputs, b: BrrrrInputs, settings: Setting
   const op = operating(deal);
   const appraisal = b.appraisal > 0 ? b.appraisal : deal.arv;
   const ltvLoan = appraisal * b.refiLtv;
-  const monthlyTia = (deal.taxesAnnual + deal.insuranceAnnual) / 12 + deal.hoaMonthly;
-  // Pago máximo de principal + interés que permite el DSCR mínimo.
-  const maxMonthlyDebt =
-    b.dscrBasis === "renta"
-      ? Math.max(0, deal.monthlyRent / b.minDscr - monthlyTia)
-      : op.noi > 0 ? op.noi / b.minDscr / 12 : 0;
-  const dscrLoan = principalFromPayment(maxMonthlyDebt, b.refiRate, b.refiTermYears);
+  const { monthlyTia, dscrLoan } = dscrMaxLoan(deal, b);
   const lenderCap = b.lenderMaxLoan > 0 ? b.lenderMaxLoan : null;
   const newLoan = Math.max(0, Math.min(ltvLoan, dscrLoan, lenderCap ?? Infinity));
   const limitedBy = newLoan === ltvLoan ? "LTV" : newLoan === dscrLoan ? "DSCR" : "Prestamista";
@@ -145,8 +168,7 @@ export function analyzeBrrrr(deal: DealInputs, b: BrrrrInputs, settings: Setting
   );
 
   const monthlyPitia = postRefi.monthlyDebtService + monthlyTia;
-  const lenderDscr =
-    b.dscrBasis === "renta" ? (monthlyPitia > 0 ? deal.monthlyRent / monthlyPitia : null) : postRefi.dscr;
+  const lenderDscr = lenderDscrFor(deal, b.dscrBasis, postRefi.monthlyDebtService, monthlyTia, postRefi.dscr);
 
   return {
     buy: { price: deal.purchasePrice, closing, loanAmount: loan, points, fees, cashAtPurchase: deal.purchasePrice + closing + points + fees - Math.min(loan, deal.purchasePrice) },

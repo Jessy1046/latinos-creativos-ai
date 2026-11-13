@@ -10,8 +10,8 @@ import { analyzeBrrrr, BrrrrInputs, DEFAULT_BRRRR, ExpansionInputs, simulateExpa
 import { AdjustmentRates, DEFAULT_ADJ, estimateArv, estimateRent, RentComp, SaleComp } from "@/lib/engine/comps";
 import { analyzeFlip, DEFAULT_FLIP, FlipInputs, maxOfferForTargetProfit } from "@/lib/engine/flip";
 import {
-  cashMethod, DEFAULT_HARD_MONEY, DEFAULT_PARTNERS, DEFAULT_PRIVATE, hardMoneyLoan, hardMoneyMethod,
-  HardMoneyInputs, partnersMethod, PartnersInputs, privateLenderMethod, PrivateLenderInputs,
+  cashMethod, DEFAULT_HARD_MONEY, DEFAULT_PARTNERS, DEFAULT_PARTNERS_REFI, DEFAULT_PRIVATE, hardMoneyLoan, hardMoneyMethod,
+  HardMoneyInputs, partnersMethod, PartnersInputs, partnersRefi, PartnersRefiInputs, privateLenderMethod, PrivateLenderInputs,
 } from "@/lib/engine/financing";
 import { analyzeRental, conventionalPurchase, project } from "@/lib/engine/rental";
 import { flipRule, rentRule, Verdict } from "@/lib/engine/rules";
@@ -47,6 +47,7 @@ export interface AnalysisState {
   lenders: HardMoneyInputs[];
   lenderIndex: number;
   partners: PartnersInputs;
+  partnersRefi: PartnersRefiInputs;
   priv: PrivateLenderInputs;
   brrrr: BrrrrInputs;
   brrrrUsesHardMoney: boolean;
@@ -68,6 +69,7 @@ const initial: AnalysisState = {
   lenders: [DEFAULT_HARD_MONEY, { ...DEFAULT_HARD_MONEY, lenderName: "Prestamista B", rate: 0.1, pointsPct: 0.03, purchasePctFinanced: 0.85 }],
   lenderIndex: 0,
   partners: DEFAULT_PARTNERS,
+  partnersRefi: DEFAULT_PARTNERS_REFI,
   priv: DEFAULT_PRIVATE,
   brrrr: DEFAULT_BRRRR,
   brrrrUsesHardMoney: true,
@@ -186,6 +188,7 @@ function compute(s: AnalysisState, lookup: PropertyLookup | null) {
   const cash = cashMethod(deal, s.flip, settings);
   const hardMoney = s.lenders.map((l) => hardMoneyMethod(deal, s.flip, settings, l));
   const partners = partnersMethod(deal, s.flip, settings, s.partners);
+  const partnersRefiR = partnersRefi(deal, settings, s.partners, s.partnersRefi);
   const priv = privateLenderMethod(deal, s.flip, settings, s.priv);
   const methods = [cash, hardMoney[s.lenderIndex] ?? hardMoney[0], partners, priv];
 
@@ -216,7 +219,7 @@ function compute(s: AnalysisState, lookup: PropertyLookup | null) {
   }
 
   return {
-    lender, hmLoan, rent, flipR, conv, rental, projection, flipInputs, flip, flipMaxOffer, cash, hardMoney, partners, priv,
+    lender, hmLoan, rent, flipR, conv, rental, projection, flipInputs, flip, flipMaxOffer, cash, hardMoney, partners, partnersRefi: partnersRefiR, priv,
     methods, brrrrInputs, brrrr, expansion, strategies, recommendation, subject, arv, rentEst, insights, overall,
   };
 }
